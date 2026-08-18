@@ -15,7 +15,6 @@ QUEUE_CHANNEL_ID = 1539069138633236550        # Waar de match-kaarten komen te s
 # ----------------------------------------------------
 class ChallengeModal(discord.ui.Modal):
     def __init__(self, mode: str, original_leader: str, host_id: int, server_choice: str, message: discord.Message):
-        # We maken de titel super kort om laadtijd te besparen
         super().__init__(title=f"Challenge {mode}")
         self.mode = mode
         self.original_leader = original_leader
@@ -35,7 +34,8 @@ class ChallengeModal(discord.ui.Modal):
         self.add_item(self.opponents)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Direct uitstellen om ELKE vorm van lag of timeout te voorkomen
+        # ⚡ CRUCIALE FIX: We vertellen Discord DIRECT dat de invoer is ontvangen. 
+        # Dit stopt de "didn't respond" melding onmiddellijk!
         await interaction.response.defer(ephemeral=True)
         
         guild = interaction.guild
@@ -58,7 +58,10 @@ class ChallengeModal(discord.ui.Modal):
         disabled_btn = discord.ui.Button(label="Match Filled", style=discord.ButtonStyle.grey, disabled=True)
         disabled_view.add_item(disabled_btn)
         
-        await self.message.edit(embed=disabled_embed, view=disabled_view)
+        try:
+            await self.message.edit(embed=disabled_embed, view=disabled_view)
+        except Exception:
+            pass
 
         # Create Private Match Text Channel
         overwrites = {
@@ -90,6 +93,8 @@ class ChallengeModal(discord.ui.Modal):
             f"Private match room created: {match_channel.mention}"
         )
         await interaction.channel.send(match_alert)
+        
+        # Stuur het succesbericht via de followup (omdat we hierboven al gedeferd hebben)
         await interaction.followup.send(f"Challenge confirmed! Room created: {match_channel.mention}", ephemeral=True)
 
 
@@ -110,6 +115,7 @@ class ChallengeView(discord.ui.View):
             await interaction.response.send_message("You cannot challenge your own match card!", ephemeral=True)
             return
             
+        # Toon direct het pop-up venster zonder vertraging
         await interaction.response.send_modal(ChallengeModal(
             mode=self.mode, 
             original_leader=self.original_leader, 
@@ -140,11 +146,10 @@ async def send_to_queue_channel(bot_instance, mode: str, leader_name: str, serve
 
 
 # ----------------------------------------------------
-# 4. STEP 1 POP-UP: THE HOST FIELDS (VLIEDERLICHT GEMAAKT)
+# 4. STEP 1 POP-UP: THE HOST FIELDS
 # ----------------------------------------------------
 class HostModal(discord.ui.Modal):
     def __init__(self, mode: str):
-        # We halen de logica uit de __init__ om de pop-up onmiddellijk te laten openen
         super().__init__(title=f"Host Menu ({mode})")
         self.mode = mode
 
@@ -167,7 +172,6 @@ class HostModal(discord.ui.Modal):
         self.add_item(self.server_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Direct uitstellen om de timeout voor te zijn
         await interaction.response.defer(ephemeral=True)
         await send_to_queue_channel(interaction.client, self.mode, self.ign.value, self.server_input.value, interaction.user.id)
         await interaction.followup.send("Lobby posted to the queue channel!", ephemeral=True)
@@ -215,5 +219,4 @@ async def setup_app(ctx):
     
     await ctx.send(embed=embed, view=ApplicationView())
 
-# Haalt de token nu volledig veilig op uit Render
 bot.run(os.environ.get('DISCORD_TOKEN'))
