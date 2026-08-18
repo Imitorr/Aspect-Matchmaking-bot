@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 import os
-import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -10,22 +9,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Gekoppelde tekstkanalen
 APPLICATION_CHANNEL_ID = 1539069061902766110  # Waar spelers !setup_app typen
 QUEUE_CHANNEL_ID = 1539069138633236550        # Waar de match-kaarten komen te staan
-
-# ----------------------------------------------------
-# 0. DE SLUIT-KNOP VOOR HET MATCH-KANAAL
-# ----------------------------------------------------
-class CloseChannelView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🔒 Sluit Match", style=discord.ButtonStyle.secondary, custom_id="close_match_btn")
-    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Dit kanaal wordt over 5 seconden verwijderd...", ephemeral=False)
-        await asyncio.sleep(5)
-        try:
-            await interaction.channel.delete()
-        except Exception as e:
-            print(f"Fout bij verwijderen kanaal: {e}")
 
 # ----------------------------------------------------
 # 1. STEP 2 POP-UP: THE CHALLENGER FIELDS
@@ -51,12 +34,15 @@ class ChallengeModal(discord.ui.Modal):
         self.add_item(self.opponents)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # ⚡ CRUCIALE FIX: We vertellen Discord DIRECT dat de invoer is ontvangen. 
+        # Dit stopt de "didn't respond" melding onmiddellijk!
         await interaction.response.defer(ephemeral=True)
         
         guild = interaction.guild
         challenger = interaction.user
         host_member = guild.get_member(self.host_id)
 
+        # Lock original card en update visual layout
         disabled_embed = discord.Embed(
             title=f"🔒 {self.mode} Match Closed / Filled",
             description=(
@@ -77,6 +63,7 @@ class ChallengeModal(discord.ui.Modal):
         except Exception:
             pass
 
+        # Create Private Match Text Channel
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False),
             challenger: discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True),
@@ -94,10 +81,9 @@ class ChallengeModal(discord.ui.Modal):
             f"**Server Location:** {self.server_choice}\n\n"
             f"**Team 1 (Host):** {self.original_leader} ({f'<@{self.host_id}>' if host_member else ''})\n"
             f"**Team 2 (Challenger):** {self.opponents.value} ({challenger.mention})\n\n"
-            f"Coordinate your lobby setup details here safely. Nobody else can view this room.\n\n"
-            f"**Klaar met spelen?** Klik op de knop hieronder om dit kanaal permanent te sluiten."
+            f"Coordinate your lobby setup details here safely. Nobody else can view this room."
         )
-        await match_channel.send(private_msg, view=CloseChannelView())
+        await match_channel.send(private_msg)
 
         match_alert = (
             f"⚔️ **Match Confirmed!** ⚔️\n"
@@ -107,7 +93,10 @@ class ChallengeModal(discord.ui.Modal):
             f"Private match room created: {match_channel.mention}"
         )
         await interaction.channel.send(match_alert)
+        
+        # Stuur het succesbericht via de followup (omdat we hierboven al gedeferd hebben)
         await interaction.followup.send(f"Challenge confirmed! Room created: {match_channel.mention}", ephemeral=True)
+
 
 # ----------------------------------------------------
 # 2. MATCH DISPATCH PANEL BUTTON
@@ -126,6 +115,7 @@ class ChallengeView(discord.ui.View):
             await interaction.response.send_message("You cannot challenge your own match card!", ephemeral=True)
             return
             
+        # Toon direct het pop-up venster zonder vertraging
         await interaction.response.send_modal(ChallengeModal(
             mode=self.mode, 
             original_leader=self.original_leader, 
@@ -133,6 +123,7 @@ class ChallengeView(discord.ui.View):
             server_choice=self.server_choice,
             message=interaction.message
         ))
+
 
 # ----------------------------------------------------
 # 3. CARD SENDER LOGIC
@@ -152,6 +143,7 @@ async def send_to_queue_channel(bot_instance, mode: str, leader_name: str, serve
     embed.set_footer(text="Click the button below to submit your team and fight them!")
 
     await channel.send(embed=embed, view=ChallengeView(mode=mode, original_leader=leader_name, host_id=host_id, server_choice=server_choice))
+
 
 # ----------------------------------------------------
 # 4. STEP 1 POP-UP: THE HOST FIELDS
@@ -184,6 +176,7 @@ class HostModal(discord.ui.Modal):
         await send_to_queue_channel(interaction.client, self.mode, self.ign.value, self.server_input.value, interaction.user.id)
         await interaction.followup.send("Lobby posted to the queue channel!", ephemeral=True)
 
+
 # ----------------------------------------------------
 # 5. INITIAL DISPLAY PANEL VIEW
 # ----------------------------------------------------
@@ -203,29 +196,27 @@ class ApplicationView(discord.ui.View):
     async def button_3v3(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HostModal(mode="3v3"))
 
+
 # ----------------------------------------------------
-# 6. ENGINE EXECUTION LOGIC & COMMANDS
+# 6. ENGINE EXECUTION LOGIC
 # ----------------------------------------------------
 @bot.event
 async def on_ready():
-    bot.add_view(CloseChannelView())
-    bot.add_view(ApplicationView())  # Zorgt ervoor dat het startmenu blijft werken na een herstart
     print(f"Logged in as {bot.user.name} - Bot is online!")
 
 @bot.command()
 async def setup_app(ctx):
     if ctx.channel.id != APPLICATION_CHANNEL_ID:
-await ctx.send("This command can only be used in the application channel!", delete_after=5)
-return
+        await ctx.send("This command can only be used in the application channel!", delete_after=5)
+        return
 
-
-
-embed = discord.Embed(
-title="Welcome to Matchmaking System!",
-description="Select your match setup below to post your open game ticket to the queue channel.",
-color=discord.Color.dark_theme()
-)
-embed.set_footer(text="Match System Bot")
-await ctx.send(embed=embed, view=ApplicationView())
+    embed = discord.Embed(
+        title="Welcome to Matchmaking System!",
+        description="Select your match setup below to post your open game ticket to the queue channel.",
+        color=discord.Color.dark_theme()
+    )
+    embed.set_footer(text="Match System Bot")
+    
+    await ctx.send(embed=embed, view=ApplicationView())
 
 bot.run(os.environ.get('DISCORD_TOKEN'))
