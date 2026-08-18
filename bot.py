@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import os
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -184,4 +185,5 @@ async def setup_app(ctx):
     
     await ctx.send(embed=embed, view=ApplicationView())
 
-bot.run('MTUzOTA1NTI5Mzk0NDgyMzk0MA.GZ7vJ6.v8DhhMTcyQAN0d7twTnr6mmjwo8teVIB1g8FPQ')
+# Haalt de token nu volledig veilig op uit Render
+bot.run(os.environ.get('DISCORD_TOKEN'))
